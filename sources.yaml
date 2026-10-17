@@ -1,0 +1,96 @@
+# ==========================================
+# 监控源配置
+# 每个源包含 name / url / type / selector(可选) / enabled
+# type: html（网页）/ rss（RSS 订阅）/ json（JSON API）
+# ==========================================
+
+sources:
+  # ---- 官方渠道 ----
+
+  - name: "开心消消乐官网-新闻中心"
+    url: "https://kxxxl.leyuansu.com/m-news.shtml"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "官网新闻列表，官方发布活动和更新公告"
+
+  - name: "乐元素社区-公告"
+    url: "https://ff.happyelements.com/mobile/page/index.html?app=1001"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "官方社区首页，包含活动公告和兑换码信息"
+
+  # ---- TapTap 官方社区（最可靠的兑换码来源之一）----
+
+  - name: "TapTap-开心消消乐官方公告"
+    url: "https://www.taptap.cn/app/2321/topic?type=official&label=361314"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "TapTap 官方公告区，经常发布兑换码活动"
+
+  - name: "TapTap-开心消消乐最新动向"
+    url: "https://m.taptap.cn/posts/%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90-%E8%AE%BA%E5%9D%9B%E5%AE%98%E6%96%B9%E5%86%85%E5%AE%B9-1100232106"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "TapTap 官方帖子列表，含【兑换码】专题帖"
+
+  # ---- 微博渠道 ----
+
+  - name: "微博搜索-开心消消乐兑换码"
+    url: "https://s.weibo.com/weibo?q=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90%20%E5%85%91%E6%8D%A2%E7%A0%81&typeall=1&suball=1&xsort=hot"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "微博搜索'开心消消乐 兑换码'结果页"
+
+  # ---- 搜索引擎聚合 ----
+
+  - name: "百度资讯-开心消消乐兑换码"
+    url: "https://www.baidu.com/s?wd=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90%E5%85%91%E6%8D%A2%E7%A0%81&rn=20&tn=news&rtt=4"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "百度资讯搜索结果，可发现新发布的兑换码文章"
+
+  - name: "必应搜索-开心消消乐兑换码最新"
+    url: "https://cn.bing.com/news/search?q=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90+%E5%85%91%E6%8D%A2%E7%A0%81&qft=interval%3d%228%22&form=PTFTNR"
+    type: "html"
+    enabled: true
+    selector: ""
+    note: "必应新闻搜索，最近一周结果，作为补充源"
+
+  # ---- 攻略站渠道（可能不稳定，备用）----
+
+  - name: "18183-开心消消乐专区"
+    url: "https://www.18183.com/kxxiaoxiaole/"
+    type: "html"
+    enabled: false
+    selector: ""
+    note: "18183 手游网开心消消乐专区，可能含兑换码攻略"
+
+  - name: "4399-开心消消乐新闻"
+    url: "https://news.4399.com/kxxxl/xinwen/"
+    type: "html"
+    enabled: false
+    selector: ""
+    note: "4399 开心消消乐新闻专区"
+
+  # ---- RSS / 第三方聚合渠道（可选）----
+
+  - name: "RSSHub-微信公众号（开心消消乐）"
+    url: "https://rsshub.app/wechat/ershicimi/开心消消乐"
+    type: "rss"
+    enabled: false
+    note: "RSSHub 微信公众号源，可能不稳定，备用方案"
+
+  # ---- 论坛 / 社区渠道（可选，质量参差不齐）----
+
+  - name: "贴吧-开心消消乐吧（搜索兑换码）"
+    url: "https://tieba.baidu.com/f/search/res?ie=utf-8&qw=%E5%85%91%E6%8D%A2%E7%A0%81&kw=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90&sm=2&only_thread=1"
+    type: "html"
+    enabled: false
+    selector: ""
+    note: "贴吧搜索结果，质量参差不齐，默认关闭"

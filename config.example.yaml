@@ -1,0 +1,74 @@
+# ==========================================
+# 开心消消乐兑换码监控 - 配置文件示例
+# 使用方法：复制为 config.yaml 并按需修改
+# ==========================================
+
+# 检查间隔（仅用于参考，GitHub Actions 中由 cron 控制）
+check_interval_minutes: 30
+
+# 请求超时时间（秒）
+request_timeout: 15
+
+# User-Agent
+user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# 日志级别：DEBUG / INFO / WARNING / ERROR
+log_level: "INFO"
+
+# 推送配置
+# 优先使用环境变量，也可在此处填写（不推荐提交到版本库）
+push:
+  # Server酱（微信推送，推荐）
+  # 注册地址：https://sct.ftqq.com/
+  serverchan_key: ""           # 或使用环境变量 SERVERCHAN_KEY
+
+  # Bark（iOS 推送，可选）
+  # App Store 搜索 "Bark" 下载
+  bark_key: ""                 # 或使用环境变量 BARK_KEY
+  bark_url: "https://api.day.app"  # Bark 服务器地址，自建请修改
+
+  # PushPlus（微信推送，可选）
+  # 官网：https://www.pushplus.plus/
+  pushplus_token: ""           # 或使用环境变量 PUSHPLUS_TOKEN
+
+# 兑换码识别配置
+parser:
+  # 最小码长度
+  min_length: 6
+  # 最大码长度
+  max_length: 20
+  # 关键词列表（匹配这些词附近的码）
+  keywords:
+    - "兑换码"
+    - "礼包码"
+    - "CDK"
+    - "福利码"
+    - "口令"
+    - "激活码"
+  # 需要过滤的无意义词（大写）
+  filter_words:
+    - "HTTP"
+    - "HTTPS"
+    - "WWW"
+    - "COM"
+    - "CN"
+    - "NET"
+    - "ORG"
+    - "HTML"
+    - "PHP"
+    - "ASP"
+    - "JSP"
+    - "GIF"
+    - "PNG"
+    - "JPG"
+    - "MP4"
+    - "MP3"
+    - "PDF"
+    - "ZIP"
+    - "RAR"
+    - "DOWNLOAD"
+    - "UPLOAD"
+    - "ABOUT"
+    - "CONTACT"
+    - "LOGIN"
+    - "REGISTER"
