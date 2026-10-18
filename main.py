@@ -12,7 +12,7 @@ import json
 import time
 import logging
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -28,6 +28,21 @@ CONFIG_FILE = BASE_DIR / "config.yaml"
 CONFIG_EXAMPLE_FILE = BASE_DIR / "config.example.yaml"
 SOURCES_FILE = BASE_DIR / "sources.yaml"
 SEEN_CODES_FILE = BASE_DIR / "seen_codes.json"
+PUSH_LOG_FILE = BASE_DIR / "push_log.json"
+PENDING_FILE = BASE_DIR / "pending_push.json"
+
+# 北京时间（Actions 运行环境为 UTC，统一按北京时间记录和判断）
+BJ_TZ = timezone(timedelta(hours=8))
+
+
+def now_bj():
+    """返回当前北京时间"""
+    return datetime.now(BJ_TZ)
+
+
+def bj_str():
+    """返回当前北京时间字符串，格式 YYYY-MM-DD HH:MM:SS"""
+    return now_bj().strftime("%Y-%m-%d %H:%M:%S")
 
 # 日志配置
 logging.basicConfig(
@@ -350,6 +365,84 @@ def get_seen_code_set(seen_list):
 
 
 # ==========================================
+# 推送日志与待发队列
+# ==========================================
+
+PUSH_LOG_KEEP = 100  # push_log.json 最多保留的记录条数
+
+
+def load_push_log():
+    """加载推送日志"""
+    if not PUSH_LOG_FILE.exists():
+        return []
+    try:
+        with open(PUSH_LOG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"读取 push_log.json 失败: {e}")
+        return []
+
+
+def append_push_log(entry_type, success, detail, codes=None):
+    """
+    追加一条推送日志
+    entry_type: new_codes(新码推送) / anomaly(异常提醒) / daily_report(每日报告)
+    """
+    log = load_push_log()
+    log.append({
+        "time": bj_str(),
+        "type": entry_type,
+        "success": bool(success),
+        "detail": str(detail)[:200],
+        "codes": codes or [],
+    })
+    # 只保留最近 N 条，避免文件无限增长
+    log = log[-PUSH_LOG_KEEP:]
+    try:
+        with open(PUSH_LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(log, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存 push_log.json 失败: {e}")
+
+
+def load_pending_codes():
+    """加载待发队列（此前推送失败暂存的兑换码）"""
+    if not PENDING_FILE.exists():
+        return []
+    try:
+        with open(PENDING_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"读取 pending_push.json 失败: {e}")
+        return []
+
+
+def save_pending_codes(codes_list):
+    """保存待发队列"""
+    try:
+        with open(PENDING_FILE, "w", encoding="utf-8") as f:
+            json.dump(codes_list, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"保存 pending_push.json 失败: {e}")
+        return False
+
+
+def merge_codes(pending_codes, new_codes):
+    """合并待发队列与新发现的码，按码值去重（待发队列的记录优先保留）"""
+    merged = []
+    codes_seen = set()
+    for item in list(pending_codes) + list(new_codes):
+        code = item["code"].upper()
+        if code not in codes_seen:
+            merged.append(item)
+            codes_seen.add(code)
+    return merged
+
+
+# ==========================================
 # 推送通知
 # ==========================================
 
@@ -520,7 +613,7 @@ def run_monitor(config, sources, dry_run=False):
                 new_code_entry = {
                     "code": code,
                     "source": name,
-                    "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "first_seen": bj_str(),
                     "url": url,
                     "raw_text": item["raw_text"][:200],  # 限制长度
                 }
@@ -540,23 +633,44 @@ def run_monitor(config, sources, dry_run=False):
         logger.info("Dry-run 模式：不推送通知，不更新状态文件")
         for code_info in new_codes:
             logger.info(f"  {code_info['code']} | {code_info['source']} | {code_info['url']}")
+        pending = load_pending_codes()
+        if pending:
+            logger.info(f"另有 {len(pending)} 个此前推送失败暂存的码，正式运行时会一并推送")
         return new_codes, failed_sources
 
     # 推送通知
     push_cfg = get_push_config(config)
     push_configured = any([push_cfg.get("serverchan_key"), push_cfg.get("bark_key"), push_cfg.get("pushplus_token")])
 
-    if new_codes:
+    pending_codes = load_pending_codes()
+
+    if new_codes or pending_codes:
+        # 合并本轮新码与待发队列（此前因额度用完等原因没发出去的）
+        to_push = merge_codes(pending_codes, new_codes)
+        if pending_codes:
+            logger.info(f"待发队列中有 {len(pending_codes)} 个码，与新码合并后共 {len(to_push)} 个待推送")
+
         if push_configured:
-            title, content = build_push_message(new_codes)
+            title, content = build_push_message(to_push)
             ok, msg = push_notification(title, content, push_cfg)
             logger.info(f"推送结果: {msg}")
+            append_push_log("new_codes", ok, msg, [c["code"] for c in to_push])
+
+            if ok:
+                if pending_codes:
+                    logger.info("推送成功，已清空待发队列")
+                    save_pending_codes([])
+            else:
+                # 推送失败（如免费额度用完），暂存起来，下次运行时自动重试（额度次日重置后即可发出）
+                save_pending_codes(to_push)
+                logger.warning(f"推送失败，{len(to_push)} 个码已暂存到待发队列，将在下次运行时重试")
         else:
             logger.warning("未配置任何推送渠道，跳过推送")
 
-        # 更新状态文件
-        seen_list.extend(new_codes)
-        save_seen_codes(seen_list)
+        # 更新状态文件（无论推送成败都记录到 seen，避免重复识别；没发出去的码保留在待发队列中）
+        if new_codes:
+            seen_list.extend(new_codes)
+            save_seen_codes(seen_list)
     elif failed_sources and push_configured:
         # 全部失败时推送异常提醒
         if len(failed_sources) == len(sources):
@@ -565,10 +679,11 @@ def run_monitor(config, sources, dry_run=False):
                 f"所有监控源均抓取失败，请检查网络或页面是否改版。\n\n"
                 f"失败源数量: {len(failed_sources)}/{len(sources)}\n"
                 f"失败源: {', '.join(failed_sources)}\n\n"
-                f"检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                f"检查时间: {bj_str()}"
             )
             ok, msg = push_notification(title, content, push_cfg)
             logger.info(f"异常推送结果: {msg}")
+            append_push_log("anomaly", ok, msg)
 
     return new_codes, failed_sources
 
@@ -609,7 +724,7 @@ def test_push(config):
     content = (
         "这是一条测试消息。\n\n"
         "如果您收到了这条消息，说明推送配置已正确设置。\n\n"
-        f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"测试时间: {bj_str()}\n\n"
         "---\n"
         "开心消消乐兑换码监控项目"
     )
@@ -617,6 +732,58 @@ def test_push(config):
     ok, msg = push_notification(title, content, push_cfg)
     logger.info(f"测试推送结果: {msg}")
     return ok
+
+
+def run_daily_report(config):
+    """
+    每日报告（由 Actions 在北京时间 23:30 触发）：
+    - 当天已有成功推送（新码/异常提醒/补发）→ 用户已知监控在运行，不再发日报，省额度
+    - 当天没有成功推送，但有暂存的待发码（免费额度用完）→ 不发日报，待发码次日额度重置后自动补发
+    - 当天没有任何成功推送、也没有待发码 → 说明没抓到新码，发一条"今日无新码"日报
+    """
+    logger.info("=" * 50)
+    logger.info("执行每日报告检查")
+    logger.info("=" * 50)
+
+    today = bj_str()[:10]
+    push_log = load_push_log()
+    pending_codes = load_pending_codes()
+
+    # 统计当天（北京时间）成功的推送记录
+    today_success = [
+        e for e in push_log
+        if e.get("success") and str(e.get("time", "")).startswith(today)
+    ]
+
+    if today_success:
+        logger.info(f"今天已有 {len(today_success)} 次成功推送，无需发送日报")
+        return
+
+    if pending_codes:
+        logger.info(
+            f"存在 {len(pending_codes)} 个暂存待发的兑换码（推送免费额度可能已用完），"
+            "跳过日报，待发码将在额度重置后自动补发"
+        )
+        return
+
+    # 今天没有成功推送、也没有待发码 → 说明没抓到新码，发送日报
+    push_cfg = get_push_config(config)
+    push_configured = any([push_cfg.get("serverchan_key"), push_cfg.get("bark_key"), push_cfg.get("pushplus_token")])
+    if not push_configured:
+        logger.warning("未配置任何推送渠道，跳过日报")
+        return
+
+    title = "📊 开心消消乐监控日报"
+    content = (
+        f"今天（{today}）没有发现新兑换码，监控运行正常。\n\n"
+        f"程序仍在持续监控中，一有新码会立刻推送。\n\n"
+        f"报告时间: {bj_str()}\n\n"
+        "---\n"
+        "开心消消乐兑换码监控项目"
+    )
+    ok, msg = push_notification(title, content, push_cfg)
+    logger.info(f"日报推送结果: {msg}")
+    append_push_log("daily_report", ok, msg)
 
 
 # ==========================================
@@ -627,6 +794,7 @@ def main():
     parser = argparse.ArgumentParser(description="开心消消乐兑换码监控通知")
     parser.add_argument("--dry-run", action="store_true", help="抓取并打印识别结果，不推送，不更新状态")
     parser.add_argument("--test-push", action="store_true", help="发送一条测试通知，验证推送配置")
+    parser.add_argument("--daily-report", action="store_true", help="每日报告模式：当天没有推送时发送一条日报，不执行抓取")
     args = parser.parse_args()
 
     # 加载配置
@@ -640,6 +808,11 @@ def main():
     if args.test_push:
         logger.info("执行推送测试...")
         test_push(config)
+        return
+
+    # 每日报告模式（不需要监控源）
+    if args.daily_report:
+        run_daily_report(config)
         return
 
     # 加载监控源

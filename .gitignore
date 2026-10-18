@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# 测试缓存
+.pytest_cache/
+
+# 本地私有配置
+config.yaml
