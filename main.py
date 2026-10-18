@@ -109,11 +109,17 @@ def parse_codes_from_text(text, parser_config=None):
             results.append({"code": code, "raw_text": raw_text})
             seen_in_this_text.add(code)
 
-    # ---- 策略二：全文扫描独立码（补充召回）----
-    code_pattern = r"(?<![A-Z0-9])([A-Z0-9]{" + str(min_len) + r"," + str(max_len) + r"})(?![A-Z0-9])"
+    # ---- 策略二：全文扫描独立码（补充召回，更严格）----
+    # 全文扫描的码要求更长（至少 8 位），减少误报
+    scan_min_len = max(min_len, 8)
+    code_pattern = r"(?<![A-Z0-9])([A-Z0-9]{" + str(scan_min_len) + r"," + str(max_len) + r"})(?![A-Z0-9])"
     for match in re.finditer(code_pattern, text.upper()):
         code = match.group(1)
-        if _is_valid_code(code, filter_words, min_len, max_len) and code not in seen_in_this_text:
+        if (
+            _is_valid_code(code, filter_words, scan_min_len, max_len)
+            and not _is_likely_official_number(text, match.start(), match.end())
+            and code not in seen_in_this_text
+        ):
             start = max(0, match.start() - 20)
             end = min(len(text), match.end() + 20)
             raw_text = text[start:end].strip()
@@ -121,6 +127,55 @@ def parse_codes_from_text(text, parser_config=None):
             seen_in_this_text.add(code)
 
     return results
+
+
+def _is_likely_official_number(text, start, end):
+    """
+    判断匹配到的串是否是备案号/证件号/文号等官方编号（而非兑换码）
+    通过检查前后文的中文关键字来判断
+    """
+    # 获取码前后各 3 个字符的上下文
+    ctx_before = text[max(0, start - 3):start]
+    ctx_after = text[end:min(len(text), end + 3)]
+
+    # 前面有这些字 -> 很可能是官方编号
+    prefix_indicators = [
+        "字", "第", "备", "证", "许", "准", "批", "号", "文", "网",
+        "游", "版", "出", "发", "管", "监", "审", "核", "验", "登",
+        "注", "册", "编", "序", "代", "编",
+    ]
+
+    # 后面有这些字 -> 很可能是官方编号
+    suffix_indicators = [
+        "号", "字", "证", "书", "件", "批", "准", "许", "备",
+    ]
+
+    for indicator in prefix_indicators:
+        if ctx_before.endswith(indicator):
+            return True
+
+    for indicator in suffix_indicators:
+        if ctx_after.startswith(indicator):
+            return True
+
+    # 检查"XX字XXX号"这种典型文号格式
+    # 在更大范围内查找
+    wide_before = text[max(0, start - 10):start]
+    wide_after = text[end:min(len(text), end + 5)]
+
+    # 前面有"字"且后面有"号" → 文号格式
+    if "字" in wide_before and wide_after.startswith("号"):
+        return True
+
+    # 前面有"第"且后面有"号" → 第XXX号格式
+    if "第" in wide_before and wide_after.startswith("号"):
+        return True
+
+    # 含 ICP 备案号特征
+    if "ICP" in text[max(0, start - 5):end].upper():
+        return True
+
+    return False
 
 
 def _is_valid_code(code, filter_words, min_len, max_len):
@@ -139,6 +194,15 @@ def _is_valid_code(code, filter_words, min_len, max_len):
 
     # 过滤无意义词
     if code_upper in filter_words:
+        return False
+
+    # 过滤常见备案号/证件号前缀模式
+    # 如: ICP 开头的
+    if code_upper.startswith("ICP"):
+        return False
+
+    # 纯数字+单字母组合且字母在末尾的（如 123456A）疑似证件号
+    if re.match(r"^\d+[A-Z]$", code_upper) and len(code_upper) >= 7:
         return False
 
     return True

@@ -11,7 +11,7 @@ import os
 # 添加上级目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import parse_codes_from_text, _is_valid_code
+from main import parse_codes_from_text, _is_valid_code, _is_likely_official_number
 
 
 class TestIsValidCode(unittest.TestCase):
@@ -63,6 +63,75 @@ class TestIsValidCode(unittest.TestCase):
         """大小写不敏感"""
         self.assertTrue(_is_valid_code("abc123def", self.filter_words, self.min_len, self.max_len))
         self.assertTrue(_is_valid_code("AbC123DeF", self.filter_words, self.min_len, self.max_len))
+
+    def test_icp_prefix_filtered(self):
+        """ICP 开头的备案号应被过滤"""
+        self.assertFalse(_is_valid_code("ICP140541", self.filter_words, self.min_len, self.max_len))
+        self.assertFalse(_is_valid_code("ICP2024001", self.filter_words, self.min_len, self.max_len))
+
+    def test_id_number_like_filtered(self):
+        """纯数字+末尾单字母的疑似证件号应被过滤（7位以上）"""
+        self.assertFalse(_is_valid_code("1234567A", self.filter_words, self.min_len, self.max_len))
+        self.assertFalse(_is_valid_code("1101011990X", self.filter_words, self.min_len, self.max_len))
+
+
+class TestIsLikelyOfficialNumber(unittest.TestCase):
+    """测试 _is_likely_official_number 上下文过滤函数"""
+
+    def test_game_record_number(self):
+        """游戏备案号 CSG120 后跟'号'应识别为官方编号"""
+        text = "文网游备字2014M-CSG120号"
+        # CSG120 在文本中的位置
+        start = text.find("CSG120")
+        end = start + len("CSG120")
+        self.assertTrue(_is_likely_official_number(text, start, end))
+
+    def test_icp_license(self):
+        """ICP 备案号格式应识别为官方编号"""
+        text = "京ICP证140541号"
+        start = text.find("ICP")
+        end = start + len("ICP")
+        # ICP 本身会被前缀过滤，这里测试上下文
+        text2 = "京ICP证140541号"
+        start2 = text2.find("140541")
+        end2 = start2 + len("140541")
+        # 140541 是纯数字，不会被识别为码，但前后有"证"和"号"
+        self.assertTrue(_is_likely_official_number(text2, start2, end2))
+
+    def test_di_hao_format(self):
+        """第XXX号格式应识别为官方编号"""
+        text = "第A12345号"
+        start = text.find("A12345")
+        end = start + len("A12345")
+        self.assertTrue(_is_likely_official_number(text, start, end))
+
+    def test_zi_hao_format(self):
+        """XX字XXX号格式应识别为官方编号"""
+        text = "京政字A2024001号"
+        start = text.find("A2024001")
+        end = start + len("A2024001")
+        self.assertTrue(_is_likely_official_number(text, start, end))
+
+    def test_normal_code_not_official(self):
+        """正常兑换码不应被识别为官方编号"""
+        text = "最新兑换码：ABC123DEF 快来领取"
+        start = text.find("ABC123DEF")
+        end = start + len("ABC123DEF")
+        self.assertFalse(_is_likely_official_number(text, start, end))
+
+    def test_code_with_prefix_bei(self):
+        """前面有'备'字的应识别为官方编号"""
+        text = "备案号B2024001信息"
+        start = text.find("B2024001")
+        end = start + len("B2024001")
+        self.assertTrue(_is_likely_official_number(text, start, end))
+
+    def test_code_with_suffix_zheng(self):
+        """后面有'证'字的应识别为官方编号"""
+        text = "编号C2024001证"
+        start = text.find("C2024001")
+        end = start + len("C2024001")
+        self.assertTrue(_is_likely_official_number(text, start, end))
 
 
 class TestParseCodesFromText(unittest.TestCase):
@@ -202,6 +271,52 @@ class TestParseCodesFromText(unittest.TestCase):
         result = parse_codes_from_text(text, self.parser_config)
         codes = [r["code"] for r in result]
         self.assertIn("KOULING666", codes)
+
+    # ---- 误报过滤测试 ----
+
+    def test_false_positive_game_record_number(self):
+        """游戏备案号 CSG120 不应被识别为兑换码"""
+        text = "文网游备字2014M-CSG120号 是本游戏的备案号"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        self.assertNotIn("CSG120", codes)
+
+    def test_false_positive_icp_license(self):
+        """ICP 备案号不应被识别为兑换码"""
+        text = "京ICP证140541号 是本站的备案信息"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        self.assertNotIn("ICP140541", codes)
+
+    def test_false_positive_di_hao(self):
+        """第XXX号格式不应被识别为兑换码"""
+        text = "本产品批准文号为 第A12345号"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        self.assertNotIn("A12345", codes)
+
+    def test_false_positive_zi_hao(self):
+        """XX字XXX号格式不应被识别为兑换码"""
+        text = "京政字A2024001号 官方文件"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        self.assertNotIn("A2024001", codes)
+
+    def test_false_positive_short_code_in_text(self):
+        """6位的码如果没有关键词前缀，全文扫描不应匹配（全文扫描最小8位）"""
+        text = "随机出现的 VIP666 没有前缀关键词"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        # VIP666 只有 6 位，全文扫描最小 8 位，且没有关键词前缀
+        self.assertNotIn("VIP666", codes)
+
+    def test_keyword_still_works_with_hao(self):
+        """关键词+码+号的格式，只要码前面有关键词，仍应识别（关键词匹配优先级高）"""
+        text = "兑换码：VIP666888号礼包"
+        result = parse_codes_from_text(text, self.parser_config)
+        codes = [r["code"] for r in result]
+        # 有关键词"兑换码"前缀，策略一匹配，仍应识别
+        self.assertIn("VIP666888", codes)
 
 
 class TestSeenCodesLogic(unittest.TestCase):
