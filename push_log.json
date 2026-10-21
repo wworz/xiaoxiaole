@@ -26,5 +26,14 @@
     "success": true,
     "detail": "Server酱: 成功",
     "codes": []
+  },
+  {
+    "time": "2026-10-22 02:14:48",
+    "type": "new_codes",
+    "success": true,
+    "detail": "Server酱: 成功",
+    "codes": [
+      "TWENTY47STUDIO"
+    ]
   }
 ]
