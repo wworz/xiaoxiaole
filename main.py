@@ -86,8 +86,94 @@ def load_sources():
 
 
 # ==========================================
-# 兑换码解析
+# 兑换码解析（含时效与署名过滤）
 # ==========================================
+
+# 上下文中出现距今天数超过该值的日期时，视为旧内容（兑换码通常有时效）
+STALE_DATE_MAX_AGE_DAYS = 14
+# "X月X日"无年份时，若按今年算在未来超过该天数，则按去年重新解释（跨年旧文场景）
+STALE_DATE_FUTURE_TOLERANCE_DAYS = 45
+# 时效检查的上下文窗口：码前后各取这么多字符找日期
+STALE_CONTEXT_WINDOW = 50
+
+
+def _is_stale_content(context, now=None, max_age_days=STALE_DATE_MAX_AGE_DAYS):
+    """
+    检查上下文中是否包含过期日期（如旧文章中的"9月7日"）
+    返回 True 表示内容疑似旧闻，其中的兑换码应丢弃
+
+    支持的日期格式：
+    - 带年份：2024年9月7日 / 2024-09-07 / 2024.9.7 / 2024/9/7
+    - 仅年份：2024年（非当年直接视为过期）
+    - 月日：9月7日（默认当年；若按今年算远在未来，按去年重新解释，处理跨年旧文）
+    """
+    if not context:
+        return False
+    if now is None:
+        now = now_bj()
+    # 统一用无时区的 datetime 比较，避免 offset-naive/aware 相减报错
+    now_naive = now.replace(tzinfo=None)
+
+    # 带年份的完整日期
+    full_date_pattern = r"(20\d{2})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})\s*[日号]?"
+    for m in re.finditer(full_date_pattern, context):
+        try:
+            date = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            continue  # 非法日期（如2月30日），跳过
+        if (now_naive - date).days > max_age_days:
+            return True
+
+    # 仅年份：非当年的年份视为过期
+    for m in re.finditer(r"(20\d{2})\s*年", context):
+        if int(m.group(1)) != now_naive.year:
+            return True
+
+    # 月日格式（无年份，需跨年推断）
+    for m in re.finditer(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]", context):
+        month, day = int(m.group(1)), int(m.group(2))
+        try:
+            date_this_year = datetime(now_naive.year, month, day)
+        except ValueError:
+            continue
+        future_days = (date_this_year - now_naive).days
+        if future_days > STALE_DATE_FUTURE_TOLERANCE_DAYS:
+            # 按今年算太遥远 -> 很可能是去年的旧文（如1月看到"12月20日"）
+            try:
+                date_last_year = datetime(now_naive.year - 1, month, day)
+            except ValueError:
+                continue
+            if (now_naive - date_last_year).days > max_age_days:
+                return True
+        elif (now_naive - date_this_year).days > max_age_days:
+            return True
+
+    return False
+
+
+def _is_image_attribution(text, start, end):
+    """
+    判断匹配到的串是否是图片版权署名（如 "© Twenty47studio/Getty Images"）
+    图片说明文字中的摄影师/机构名常被误判为兑换码
+    """
+    ctx_before = text[max(0, start - 15):start]
+    ctx_after = text[end:min(len(text), end + 20)]
+    combined = (ctx_before + ctx_after).upper()
+
+    # 前文含版权符号 ©（"© 作者/机构"署名格式）
+    if "©" in ctx_before:
+        return True
+
+    # 紧邻 Getty 图片机构署名，如 "Twenty47studio/Getty Images"
+    if "GETTY" in combined:
+        return True
+
+    # 前文是图片来源标注，如 "图片来源：XXX"
+    if "图片来源" in ctx_before:
+        return True
+
+    return False
+
 
 def parse_codes_from_text(text, parser_config=None):
     """
@@ -117,6 +203,16 @@ def parse_codes_from_text(text, parser_config=None):
     for match in re.finditer(keyword_pattern, text):
         code = match.group(1).upper()
         if _is_valid_code(code, filter_words, min_len, max_len) and code not in seen_in_this_text:
+            code_start, code_end = match.start(1), match.end(1)
+            # 上下文含过期日期 -> 旧闻中的码，跳过
+            ctx = text[max(0, code_start - STALE_CONTEXT_WINDOW):min(len(text), code_end + STALE_CONTEXT_WINDOW)]
+            if _is_stale_content(ctx):
+                logger.debug(f"  [过滤] {code}: 上下文含过期日期，跳过")
+                continue
+            # 疑似图片版权署名 -> 跳过
+            if _is_image_attribution(text, code_start, code_end):
+                logger.debug(f"  [过滤] {code}: 疑似图片版权署名，跳过")
+                continue
             # 获取关键词前后的上下文作为 raw_text
             start = max(0, match.start() - 20)
             end = min(len(text), match.end() + 20)
@@ -133,8 +229,14 @@ def parse_codes_from_text(text, parser_config=None):
         if (
             _is_valid_code(code, filter_words, scan_min_len, max_len)
             and not _is_likely_official_number(text, match.start(), match.end())
+            and not _is_image_attribution(text, match.start(), match.end())
             and code not in seen_in_this_text
         ):
+            # 上下文含过期日期 -> 旧闻中的码，跳过
+            ctx = text[max(0, match.start() - STALE_CONTEXT_WINDOW):min(len(text), match.end() + STALE_CONTEXT_WINDOW)]
+            if _is_stale_content(ctx):
+                logger.debug(f"  [过滤] {code}: 上下文含过期日期，跳过")
+                continue
             start = max(0, match.start() - 20)
             end = min(len(text), match.end() + 20)
             raw_text = text[start:end].strip()

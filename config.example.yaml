@@ -72,3 +72,6 @@ parser:
     - "CONTACT"
     - "LOGIN"
     - "REGISTER"
+    - "GETTY"           # Getty Images 图片机构名
+    - "HAPPY10000"      # 网传周年码，实际无效
+    - "TWENTY47STUDIO"  # Getty 图片署名（Twenty47studio），非兑换码
