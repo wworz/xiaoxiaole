@@ -17,9 +17,9 @@ sources:
   - name: "乐元素社区-公告"
     url: "https://ff.happyelements.com/mobile/page/index.html?app=1001"
     type: "html"
-    enabled: true
+    enabled: false
     selector: ""
-    note: "官方社区首页，包含活动公告和兑换码信息"
+    note: "官方社区首页，JS渲染页面抓不到正文（仅15字），暂停使用"
 
   # ---- TapTap 官方社区（最可靠的兑换码来源之一）----
 
@@ -42,25 +42,25 @@ sources:
   - name: "微博搜索-开心消消乐兑换码"
     url: "https://s.weibo.com/weibo?q=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90%20%E5%85%91%E6%8D%A2%E7%A0%81&typeall=1&suball=1&xsort=hot"
     type: "html"
-    enabled: true
+    enabled: false
     selector: ""
-    note: "微博搜索'开心消消乐 兑换码'结果页"
+    note: "微博搜索结果页反爬严重（抓到0字），且为第三方内容不可靠，停用"
 
-  # ---- 搜索引擎聚合 ----
+  # ---- 搜索引擎聚合（已停用：无法溯源单篇文章，旧闻与新闻混拼，是错误兑换码的主要来源）----
 
   - name: "百度资讯-开心消消乐兑换码"
     url: "https://www.baidu.com/s?wd=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90%E5%85%91%E6%8D%A2%E7%A0%81&rn=20&tn=news&rtt=4"
     type: "html"
-    enabled: true
+    enabled: false
     selector: ""
-    note: "百度资讯搜索结果，可发现新发布的兑换码文章"
+    note: "聚合页新旧资讯混拼、无法溯源（9月7日旧文片段混入推送即来自此源），停用"
 
   - name: "必应搜索-开心消消乐兑换码最新"
     url: "https://cn.bing.com/news/search?q=%E5%BC%80%E5%BF%83%E6%B6%88%E6%B6%88%E4%B9%90+%E5%85%91%E6%8D%A2%E7%A0%81&qft=interval%3d%228%22&form=PTFTNR"
     type: "html"
-    enabled: true
+    enabled: false
     selector: ""
-    note: "必应新闻搜索，最近一周结果，作为补充源"
+    note: "仅能抓到页脚备案号等杂讯（TWENTY47STUDIO/Getty署名误报即来自此源），停用"
 
   # ---- 攻略站渠道（可能不稳定，备用）----
 
