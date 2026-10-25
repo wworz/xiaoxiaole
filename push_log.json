@@ -65,5 +65,12 @@
     "success": true,
     "detail": "Server酱: 成功",
     "codes": []
+  },
+  {
+    "time": "2026-10-26 02:31:38",
+    "type": "daily_report",
+    "success": true,
+    "detail": "Server酱: 成功",
+    "codes": []
   }
 ]
